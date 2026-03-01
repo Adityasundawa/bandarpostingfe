@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bot Meta API — Flowchart Client</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #111318;
+    --border: #1e2230;
+    --accent: #00e5a0;
+    --accent2: #3b82f6;
+    --accent3: #f59e0b;
+    --danger: #ef4444;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --node-w: 220px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: auto;
+  }
+
+  /* Noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  header {
+    padding: 2.5rem 3rem 1.5rem;
+    position: relative;
+    z-index: 1;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .header-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--accent);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+
+  h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .subtitle {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 0.4rem;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 1.5rem;
+    padding: 1rem 3rem;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    position: relative;
+    z-index: 1;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  /* Main flow container */
+  .flow-wrap {
+    position: relative;
+    z-index: 1;
+    padding: 2rem 3rem 4rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* SVG connectors layer */
+  .svg-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  /* Row layout */
+  .flow-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    position: relative;
+    width: 100%;
+    margin-bottom: 0;
+  }
+
+  /* Arrow vertical */
+  .arrow-v {
+    width: 2px;
+    height: 40px;
+    background: linear-gradient(to bottom, var(--accent), transparent);
+    margin: 0 auto;
+    position: relative;
+  }
+  .arrow-v::after {
+    content: '▼';
+    position: absolute;
+    bottom: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--accent);
+    font-size: 0.65rem;
+  }
+
+  .arrow-v.blue {
+    background: linear-gradient(to bottom, var(--accent2), transparent);
+  }
+  .arrow-v.blue::after { color: var(--accent2); }
+
+  .arrow-v.amber {
+    background: linear-gradient(to bottom, var(--accent3), transparent);
+  }
+  .arrow-v.amber::after { color: var(--accent3); }
+
+  /* Nodes */
+  .node {
+    width: var(--node-w);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    position: relative;
+    cursor: default;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .node:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  }
+
+  .node-icon {
+    font-size: 1.2rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .node-label {
+    font-size: 0.7rem;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.25rem;
+  }
+
+  .node-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .node-method {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-top: 0.4rem;
+    font-weight: 600;
+  }
+
+  .node-endpoint {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-top: 0.2rem;
+  }
+
+  /* Color variants */
+  .node.green {
+    border-color: rgba(0, 229, 160, 0.3);
+    background: rgba(0, 229, 160, 0.05);
+  }
+  .node.green .node-title { color: var(--accent); }
+  .node.green .node-method { background: rgba(0,229,160,0.2); color: var(--accent); }
+
+  .node.blue {
+    border-color: rgba(59, 130, 246, 0.3);
+    background: rgba(59, 130, 246, 0.05);
+  }
+  .node.blue .node-title { color: var(--accent2); }
+  .node.blue .node-method { background: rgba(59,130,246,0.2); color: var(--accent2); }
+
+  .node.amber {
+    border-color: rgba(245, 158, 11, 0.3);
+    background: rgba(245, 158, 11, 0.05);
+  }
+  .node.amber .node-title { color: var(--accent3); }
+  .node.amber .node-method { background: rgba(245,158,11,0.2); color: var(--accent3); }
+
+  .node.red {
+    border-color: rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.05);
+  }
+  .node.red .node-title { color: var(--danger); }
+  .node.red .node-method { background: rgba(239,68,68,0.2); color: var(--danger); }
+
+  .node.purple {
+    border-color: rgba(168, 85, 247, 0.3);
+    background: rgba(168, 85, 247, 0.05);
+  }
+  .node.purple .node-title { color: #a855f7; }
+  .node.purple .node-method { background: rgba(168,85,247,0.2); color: #a855f7; }
+
+  /* Diamond decision node */
+  .diamond-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  .diamond {
+    width: 120px; height: 120px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    transform: rotate(45deg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: all 0.2s;
+  }
+
+  .diamond:hover {
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  }
+
+  .diamond.green { border-color: rgba(0,229,160,0.4); background: rgba(0,229,160,0.07); }
+  .diamond.amber { border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.07); }
+
+  .diamond-inner {
+    transform: rotate(-45deg);
+    text-align: center;
+    padding: 0.5rem;
+  }
+
+  .diamond-inner .node-icon { font-size: 1rem; }
+  .diamond-inner .node-title { font-size: 0.72rem; font-weight: 700; line-height: 1.2; }
+
+  /* Branch row */
+  .branch-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2rem;
+    width: 100%;
+  }
+
+  .branch-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  .branch-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+  }
+
+  .branch-label.yes { background: rgba(0,229,160,0.15); color: var(--accent); }
+  .branch-label.no { background: rgba(239,68,68,0.15); color: var(--danger); }
+
+  /* Horizontal connector */
+  .h-line {
+    height: 2px;
+    background: var(--border);
+    position: relative;
+  }
+
+  /* Section divider */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+    margin: 2rem 0 1.5rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .section-header-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .section-header-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    padding: 0.3rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+  }
+
+  /* Full flow section */
+  .section {
+    width: 100%;
+    max-width: 1100px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+    padding-bottom: 1rem;
+    border-bottom: 1px dashed var(--border);
+    margin-bottom: 2rem;
+  }
+
+  .section:last-child { border-bottom: none; }
+
+  /* Tooltip */
+  .node[data-tip]:hover::before {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1e2230;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 0.72rem;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 0.5rem 0.8rem;
+    border-radius: 6px;
+    white-space: nowrap;
+    z-index: 99;
+    pointer-events: none;
+    max-width: 260px;
+    white-space: normal;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  /* Parallel nodes */
+  .parallel-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.02);
+  }
+
+  .parallel-item {
+    flex: 1;
+    padding: 1rem 1.2rem;
+    border-right: 1px solid var(--border);
+    position: relative;
+    transition: background 0.2s;
+  }
+
+  .parallel-item:last-child { border-right: none; }
+  .parallel-item:hover { background: rgba(255,255,255,0.03); }
+
+  .parallel-item .node-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.25rem;
+  }
+
+  .parallel-item .node-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  .parallel-item .node-endpoint {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--muted);
+    margin-top: 0.3rem;
+  }
+
+  .parallel-item .node-method {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 0.3rem;
+    font-weight: 600;
+  }
+
+  .step-badge {
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 2px 10px;
+    border-radius: 20px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .flow-note {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    background: rgba(255,255,255,0.03);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    max-width: 500px;
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  .flow-note span { color: var(--accent3); }
+
+  /* Animate on load */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .section { animation: fadeUp 0.5s ease both; }
+  .section:nth-child(2) { animation-delay: 0.08s; }
+  .section:nth-child(3) { animation-delay: 0.16s; }
+  .section:nth-child(4) { animation-delay: 0.24s; }
+  .section:nth-child(5) { animation-delay: 0.32s; }
+
+  /* Status pill */
+  .status-row {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 0.3rem;
+  }
+
+  .pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.62rem;
+    padding: 2px 8px;
+    border-radius: 20px;
+    border: 1px solid;
+  }
+
+  .pill.green { border-color: var(--accent); color: var(--accent); background: rgba(0,229,160,0.1); }
+  .pill.red { border-color: var(--danger); color: var(--danger); background: rgba(239,68,68,0.1); }
+  .pill.amber { border-color: var(--accent3); color: var(--accent3); background: rgba(245,158,11,0.1); }
+  .pill.blue { border-color: var(--accent2); color: var(--accent2); background: rgba(59,130,246,0.1); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-label">📋 API Reference Flowchart</div>
+  <h1>Bot Meta API — Client Flow</h1>
+  <div class="subtitle">base_url: localhost:8002 &nbsp;|&nbsp; Auth: Bearer {{client_token}}</div>
+</header>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>Login & Sesi</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div>Schedule Konten</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent3)"></div>Verifikasi Asset</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#a855f7"></div>Monitor Status</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--danger)"></div>Error / Gagal</div>
+</div>
+
+<div class="flow-wrap">
+
+  <!-- ===== SECTION 1: SETUP ===== -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-header-line"></div>
+      <div class="section-header-badge">① Setup Awal</div>
+      <div class="section-header-line"></div>
+    </div>
+
+    <!-- Start -->
+    <div style="display:flex;flex-direction:column;align-items:center;">
+      <div class="node green" style="text-align:center;width:200px" data-tip="Set base_url & client_token di Collection Variables Postman">
+        <div class="node-icon">🚀</div>
+        <div class="node-label">START</div>
+        <div class="node-title">Set Collection Variables</div>
+        <div class="node-endpoint">base_url + client_token</div>
+      </div>
+
+      <div class="arrow-v"></div>
+
+      <!-- Login options -->
+      <div style="position:relative;width:100%;display:flex;flex-direction:column;align-items:center;">
+        <div class="step-badge">Pilih metode login</div>
+        <div class="parallel-row" style="max-width:600px;margin-top:12px;">
+          <div class="parallel-item">
+            <div class="node-label">Opsi A</div>
+            <div class="node-icon">🌐</div>
+            <div class="node-title" style="color:var(--accent)">Login Manual</div>
+            <div class="node-endpoint">POST /login-meta</div>
+            <div class="node-method" style="background:rgba(0,229,160,0.15);color:var(--accent)">POST</div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.4rem;font-family:'JetBrains Mono',monospace;">Buka browser → login FB → tutup browser</div>
+          </div>
+          <div class="parallel-item" style="border-left:1px solid #1e2230;display:flex;align-items:center;justify-content:center;padding:0.8rem;font-size:0.75rem;color:var(--muted);font-family:'JetBrains Mono',monospace;max-width:50px;flex:0 0 50px;">OR</div>
+          <div class="parallel-item">
+            <div class="node-label">Opsi B</div>
+            <div class="node-icon">🍪</div>
+            <div class="node-title" style="color:var(--accent)">Login via Cookies</div>
+            <div class="node-endpoint">POST /login-cookies</div>
+            <div class="node-method" style="background:rgba(0,229,160,0.15);color:var(--accent)">POST</div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.4rem;font-family:'JetBrains Mono',monospace;">Export cookies dari Cookie Editor → paste JSON</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-v"></div>
+
+      <!-- Cek status sesi (diamond decision) -->
+      <div style="position:relative;width:100%;display:flex;flex-direction:column;align-items:center;">
+        <div class="node amber" style="width:240px;text-align:center" data-tip="Selalu cek sesi sebelum schedule untuk pastikan tidak expired">
+          <div class="node-icon">🔍</div>
+          <div class="node-label">CEK KONDISI</div>
+          <div class="node-title">Cek Status Sesi</div>
+          <div class="node-endpoint">GET /check-session</div>
+          <div class="node-method" style="background:rgba(245,158,11,0.15);color:var(--accent3)">GET</div>
+        </div>
+
+        <div style="display:flex;gap:4rem;margin-top:12px;align-items:flex-start;">
+          <div style="display:flex;flex-direction:column;align-items:center;">
+            <span class="branch-label yes">✓ Logged In</span>
+            <div class="arrow-v"></div>
+            <div class="node green" style="width:160px;text-align:center">
+              <div class="node-icon">✅</div>
+              <div class="node-title">Sesi Valid</div>
+              <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">Lanjut ke Schedule</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;">
+            <span class="branch-label no">✗ Not Logged In</span>
+            <div class="arrow-v" style="background:linear-gradient(to bottom,var(--danger),transparent)"></div>
+            <div class="node red" style="width:160px;text-align:center">
+              <div class="node-icon">🔄</div>
+              <div class="node-title">Login Ulang</div>
+              <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">Kembali ke opsi A/B</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;">
+            <span class="branch-label no" style="background:rgba(100,116,139,0.15);color:var(--muted);border-color:var(--muted)">404 Not Found</span>
+            <div class="arrow-v" style="background:linear-gradient(to bottom,var(--muted),transparent)"></div>
+            <div class="node" style="width:160px;text-align:center">
+              <div class="node-icon">⚠️</div>
+              <div class="node-title">Sesi Belum Ada</div>
+              <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">Buat sesi baru dulu</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SECTION 2: VERIFIKASI ASSET ===== -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-header-line"></div>
+      <div class="section-header-badge">② Verifikasi Asset (opsional tapi disarankan)</div>
+      <div class="section-header-line"></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;">
+      <div class="flow-note">
+        <span>💡 Lakukan ini sekali</span> untuk temukan assetId (ID Facebook Page) yang valid.<br>
+        Skip jika sudah tahu assetId-nya.
+      </div>
+
+      <div class="arrow-v amber"></div>
+
+      <div class="parallel-row" style="max-width:520px;position:relative;">
+        <div class="step-badge">Jika belum tahu assetId</div>
+        <div class="parallel-item">
+          <div class="node-label">Step 2a</div>
+          <div class="node-icon">🏢</div>
+          <div class="node-title" style="color:var(--accent3)">Deteksi Semua Page</div>
+          <div class="node-endpoint">POST /check-business</div>
+          <div class="node-method" style="background:rgba(245,158,11,0.15);color:var(--accent3)">POST</div>
+          <div style="font-size:0.68rem;color:var(--muted);margin-top:0.4rem;font-family:'JetBrains Mono',monospace;">Dapat list page_name + asset_id</div>
+        </div>
+        <div class="parallel-item" style="border-left:1px solid #1e2230">
+          <div class="node-label">Step 2b</div>
+          <div class="node-icon">✔️</div>
+          <div class="node-title" style="color:var(--accent3)">Verifikasi AssetId</div>
+          <div class="node-endpoint">POST /check-asset</div>
+          <div class="node-method" style="background:rgba(245,158,11,0.15);color:var(--accent3)">POST</div>
+          <div style="font-size:0.68rem;color:var(--muted);margin-top:0.4rem;font-family:'JetBrains Mono',monospace;">Konfirmasi assetId bisa diakses sesi ini</div>
+        </div>
+      </div>
+
+      <div class="arrow-v amber"></div>
+
+      <div class="node amber" style="width:240px;text-align:center">
+        <div class="node-icon">💾</div>
+        <div class="node-label">SIMPAN</div>
+        <div class="node-title">Set {{asset_id}}</div>
+        <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">Salin asset_id ke Collection Variables</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SECTION 3: SCHEDULE ===== -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-header-line"></div>
+      <div class="section-header-badge">③ Schedule Konten</div>
+      <div class="section-header-line"></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;">
+
+      <div style="position:relative;width:100%;display:flex;flex-direction:column;align-items:center;">
+        <div class="step-badge">Pilih tipe schedule</div>
+        <div class="parallel-row" style="max-width:800px;margin-top:12px;">
+          <div class="parallel-item">
+            <div class="node-label">Tipe A</div>
+            <div class="node-icon">🎬</div>
+            <div class="node-title" style="color:var(--accent2)">Schedule Video</div>
+            <div class="node-endpoint">POST /schedule</div>
+            <div class="node-method" style="background:rgba(59,130,246,0.15);color:var(--accent2)">POST</div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">mp4, mov, avi, mkv, webm, m4v</div>
+          </div>
+          <div class="parallel-item">
+            <div class="node-label">Tipe B</div>
+            <div class="node-icon">🖼️</div>
+            <div class="node-title" style="color:var(--accent2)">Schedule Gambar</div>
+            <div class="node-endpoint">POST /schedule</div>
+            <div class="node-method" style="background:rgba(59,130,246,0.15);color:var(--accent2)">POST</div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">jpg, jpeg, png, gif, webp, bmp</div>
+          </div>
+          <div class="parallel-item">
+            <div class="node-label">Tipe C</div>
+            <div class="node-icon">📦</div>
+            <div class="node-title" style="color:var(--accent2)">Batch / Multi-Task</div>
+            <div class="node-endpoint">POST /schedule</div>
+            <div class="node-method" style="background:rgba(59,130,246,0.15);color:var(--accent2)">POST</div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">Array tasks[] dalam 1 request</div>
+          </div>
+          <div class="parallel-item">
+            <div class="node-label">Tipe D</div>
+            <div class="node-icon">👥</div>
+            <div class="node-title" style="color:var(--accent2)">Multi Session</div>
+            <div class="node-endpoint">POST /schedule</div>
+            <div class="node-method" style="background:rgba(59,130,246,0.15);color:var(--accent2)">POST</div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">Ganti sessionName ke akun lain</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-v blue"></div>
+
+      <!-- Validasi -->
+      <div class="node amber" style="width:260px;text-align:center" data-tip="Server validasi: filePath ada, date belum terlewat, hour 0-23, assetId valid">
+        <div class="node-icon">🔎</div>
+        <div class="node-label">SERVER VALIDASI</div>
+        <div class="node-title">Cek semua field task</div>
+        <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">filePath, date, hour, assetId</div>
+      </div>
+
+      <div style="display:flex;gap:5rem;margin-top:12px;align-items:flex-start;">
+        <div style="display:flex;flex-direction:column;align-items:center;">
+          <span class="branch-label yes">✓ Valid → 202</span>
+          <div class="arrow-v"></div>
+          <div class="node green" style="width:180px;text-align:center">
+            <div class="node-icon">📬</div>
+            <div class="node-title">Masuk Antrian</div>
+            <div class="status-row">
+              <span class="pill green">status: Queued</span>
+            </div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.4rem;font-family:'JetBrains Mono',monospace;">Dapat batchId<br>→ pantau via /status</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;">
+          <span class="branch-label no">✗ Gagal → 422</span>
+          <div class="arrow-v" style="background:linear-gradient(to bottom,var(--danger),transparent)"></div>
+          <div class="node red" style="width:180px;text-align:center">
+            <div class="node-icon">❌</div>
+            <div class="node-title">Ditolak</div>
+            <div class="status-row">
+              <span class="pill red">status: Rejected</span>
+            </div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.4rem;font-family:'JetBrains Mono',monospace;">Ada errors[]<br>→ perbaiki & kirim ulang</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SECTION 4: MONITOR ===== -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-header-line"></div>
+      <div class="section-header-badge">④ Monitor & Verifikasi</div>
+      <div class="section-header-line"></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;">
+
+      <div class="parallel-row" style="max-width:620px;position:relative;">
+        <div class="step-badge">Pantau proses</div>
+        <div class="parallel-item">
+          <div class="node-label">Real-time</div>
+          <div class="node-icon">📊</div>
+          <div class="node-title" style="color:#a855f7">Status Bot</div>
+          <div class="node-endpoint">GET /status</div>
+          <div class="node-method" style="background:rgba(168,85,247,0.15);color:#a855f7">GET</div>
+          <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">Refresh tiap beberapa detik untuk lihat progres antrian</div>
+          <div class="status-row" style="margin-top:0.4rem;">
+            <span class="pill blue">is_processing</span>
+            <span class="pill amber">queue_summary</span>
+            <span class="pill green">history</span>
+          </div>
+        </div>
+        <div class="parallel-item">
+          <div class="node-label">Verifikasi post</div>
+          <div class="node-icon">📋</div>
+          <div class="node-title" style="color:#a855f7">Cek Posts</div>
+          <div class="node-endpoint">POST /check-posts</div>
+          <div class="node-method" style="background:rgba(168,85,247,0.15);color:#a855f7">POST</div>
+          <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">Scrape tab Scheduled & Published di FB Business Content (~10-20 detik)</div>
+        </div>
+      </div>
+
+      <div class="arrow-v" style="background:linear-gradient(to bottom,#a855f7,transparent)"></div>
+
+      <div style="display:flex;gap:4rem;align-items:flex-start;">
+        <div style="display:flex;flex-direction:column;align-items:center;">
+          <span class="branch-label yes">✓ Sukses</span>
+          <div class="arrow-v"></div>
+          <div class="node green" style="width:170px;text-align:center">
+            <div class="node-icon">🎉</div>
+            <div class="node-title">Selesai</div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">File → folder /selesai<br>history: Success</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;">
+          <span class="branch-label no">✗ Gagal</span>
+          <div class="arrow-v" style="background:linear-gradient(to bottom,var(--danger),transparent)"></div>
+          <div class="node red" style="width:170px;text-align:center">
+            <div class="node-icon">🛑</div>
+            <div class="node-title">Batch Berhenti</div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;">Task berikutnya tidak jalan<br>→ cek error & ulangi</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SECTION 5: ERROR REFERENCE ===== -->
+  <div class="section" style="border-bottom:none;">
+    <div class="section-header">
+      <div class="section-header-line"></div>
+      <div class="section-header-badge">⚠ Referensi Error</div>
+      <div class="section-header-line"></div>
+    </div>
+
+    <div class="parallel-row" style="max-width:700px;">
+      <div class="parallel-item">
+        <div class="node-method" style="background:rgba(239,68,68,0.15);color:var(--danger);font-size:0.75rem;padding:2px 8px;">401</div>
+        <div class="node-title" style="color:var(--danger);margin-top:0.4rem">Unauthorized</div>
+        <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;line-height:1.5;">Token salah/expired/tidak aktif.<br>→ Minta token baru ke admin</div>
+      </div>
+      <div class="parallel-item">
+        <div class="node-method" style="background:rgba(239,68,68,0.15);color:var(--danger);font-size:0.75rem;padding:2px 8px;">403</div>
+        <div class="node-title" style="color:var(--danger);margin-top:0.4rem">Forbidden</div>
+        <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;line-height:1.5;">Token tidak punya akses ke sesi.<br>→ Admin assign sesi ke token</div>
+      </div>
+      <div class="parallel-item">
+        <div class="node-method" style="background:rgba(245,158,11,0.15);color:var(--accent3);font-size:0.75rem;padding:2px 8px;">422</div>
+        <div class="node-title" style="color:var(--accent3);margin-top:0.4rem">Validation Error</div>
+        <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem;font-family:'JetBrains Mono',monospace;line-height:1.5;">filePath/date/hour tidak valid.<br>→ Perbaiki field sesuai errors[]</div>
+      </div>
+    </div>
+
+    <div style="margin-top:1.5rem;">
+      <div class="flow-note">
+        <span>📌 Tips:</span> Selalu jalankan <code style="color:var(--accent)">/check-session</code> sebelum schedule.<br>
+        Cookies FB expired dalam <span>30–90 hari</span> — export ulang jika login gagal.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
