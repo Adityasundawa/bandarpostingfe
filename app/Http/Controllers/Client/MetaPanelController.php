@@ -184,4 +184,356 @@ class MetaPanelController extends Controller
             ], 500);
         }
     }
+
+
+
+    /**
+     * Tampilkan halaman Asset ID (Facebook Pages)
+     */
+    public function assets(Request $request)
+    {
+        $user = auth()->user();
+
+        if (!$user->apiMetaToken) {
+            return redirect()->route('client.meta.setup');
+        }
+
+        $tokenData  = $user->apiMetaToken;
+        $sessions   = $tokenData->sessions ?? [];
+
+        // Ambil assets dari DB, group by session_name
+        $assets = \App\Models\MetaAsset::where('user_id', $user->id)
+            ->orderBy('session_name')
+            ->orderBy('page_name')
+            ->get()
+            ->groupBy('session_name');
+
+        return view('client.meta.assets', compact('tokenData', 'sessions', 'assets'));
+    }
+
+    /**
+     * Sync Asset ID dari API /check-business → simpan ke DB
+     */
+    public function syncAssets(Request $request)
+    {
+        $request->validate([
+            'session_name' => 'required|string',
+        ]);
+
+        $user       = auth()->user();
+        $sessionName = $request->session_name;
+        $baseUrl    = rtrim(config('services.meta_api.url'), '/');
+
+        try {
+            $response = \Illuminate\Support\Facades\Http::timeout(30)
+                ->withToken($user->apiMetaToken->token)
+                ->acceptJson()
+                ->post($baseUrl . '/check-business', [
+                    'sessionName' => $sessionName,
+                ]);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $response->json('message') ?? 'Gagal menghubungi server Bot Meta.',
+                ], $response->status());
+            }
+
+            $data  = $response->json();
+            $pages = $data['pages'] ?? $data['data'] ?? [];
+
+            if (empty($pages)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tidak ada page ditemukan dari sesi ini.',
+                ]);
+            }
+
+            $synced  = 0;
+            $newCount = 0;
+
+            foreach ($pages as $page) {
+                $assetId  = $page['asset_id'] ?? $page['id'] ?? null;
+                $pageName = $page['page_name'] ?? $page['name'] ?? null;
+
+                if (!$assetId) continue;
+
+                $existed = \App\Models\MetaAsset::where('user_id', $user->id)
+                    ->where('session_name', $sessionName)
+                    ->where('asset_id', $assetId)
+                    ->exists();
+
+                \App\Models\MetaAsset::updateOrCreate(
+                    [
+                        'user_id'      => $user->id,
+                        'session_name' => $sessionName,
+                        'asset_id'     => $assetId,
+                    ],
+                    [
+                        'page_name' => $pageName,
+                        'category'  => $page['category'] ?? null,
+                        'picture'   => $page['picture'] ?? null,
+                        'raw_data'  => $page,
+                    ]
+                );
+
+                if (!$existed) $newCount++;
+                $synced++;
+            }
+
+            return response()->json([
+                'success'   => true,
+                'message'   => "Sync berhasil! {$synced} asset ditemukan, {$newCount} baru ditambahkan.",
+                'synced'    => $synced,
+                'new'       => $newCount,
+                'session'   => $sessionName,
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Hapus satu asset dari DB
+     */
+    public function deleteAsset(Request $request, $id)
+    {
+        $asset = \App\Models\MetaAsset::where('user_id', auth()->id())->findOrFail($id);
+        $asset->delete();
+
+        return response()->json(['success' => true, 'message' => 'Asset berhasil dihapus.']);
+    }
+
+
+    /**
+     * Ambil assets dari DB berdasarkan session — dipanggil via AJAX saat pilih sesi
+     */
+    public function assetsBySession(Request $request)
+    {
+        $sessionName = $request->query('session');
+
+        if (!$sessionName) {
+            return response()->json(['assets' => []]);
+        }
+
+        $assets = \App\Models\MetaAsset::where('user_id', auth()->id())
+            ->where('session_name', $sessionName)
+            ->orderBy('page_name')
+            ->get(['id', 'asset_id', 'page_name', 'category', 'picture', 'updated_at']);
+
+        return response()->json(['assets' => $assets]);
+    }
+
+  /**
+     * Ambil posts dari DB berdasarkan session + asset — dipanggil via AJAX
+     */
+    public function postsByAsset(Request $request)
+    {
+        $sessionName = $request->query('session');
+        $assetId     = $request->query('asset_id');
+
+        if (!$sessionName || !$assetId) {
+            return response()->json(['posts' => [], 'stats' => []]);
+        }
+
+        $posts = \App\Models\MetaPost::where('user_id', auth()->id())
+            ->where('session_name', $sessionName)
+            ->where('asset_id', $assetId)
+            ->orderByRaw("FIELD(status, 'scheduled', 'published', 'failed')")
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $stats = [
+            'total'     => $posts->count(),
+            'scheduled' => $posts->where('status', 'scheduled')->count(),
+            'published' => $posts->where('status', 'published')->count(),
+            'failed'    => $posts->where('status', 'failed')->count(),
+        ];
+
+        return response()->json([
+            'posts' => $posts,
+            'stats' => $stats,
+        ]);
+    }
+
+    /**
+     * Sync posts dari API /check-posts → simpan ke DB
+     *
+     * Format response API (exact):
+     * {
+     *   "status": "Success",
+     *   "sessionName": "syifahmelina455",
+     *   "assetId": "951949034669021",
+     *   "scheduled": {
+     *     "total": 0,
+     *     "url": "https://business.facebook.com/...",
+     *     "data": []
+     *   },
+     *   "published": {
+     *     "total": 19,
+     *     "url": "https://business.facebook.com/...",
+     *     "data": [
+     *       {
+     *         "title": "Baris pertama...",
+     *         "caption": "Open Drop-down",
+     *         "date": "28 February 10:22",       <-- string, bukan timestamp
+     *         "status": "Published",              <-- "Published" atau "Scheduled" (kapital)
+     *         "reach": "0",                       <-- string angka
+     *         "likes_reactions": "0",
+     *         "comments": "0",
+     *         "shares": "0",
+     *         "post_url": null                    <-- bisa null
+     *       }
+     *     ]
+     *   }
+     * }
+     */
+    public function syncPosts(Request $request)
+    {
+        $request->validate([
+            'session_name' => 'required|string',
+            'asset_id'     => 'required|string',
+        ]);
+
+        $user        = auth()->user();
+        $sessionName = $request->session_name;
+        $assetId     = $request->asset_id;
+        $baseUrl     = rtrim(config('services.meta_api.url'), '/');
+
+        try {
+            // /check-posts bisa lambat ~10-20 detik (scraping FB Business)
+            $response = \Illuminate\Support\Facades\Http::timeout(90)
+                ->withToken($user->apiMetaToken->token)
+                ->acceptJson()
+                ->post($baseUrl . '/check-posts', [
+                    'sessionName' => $sessionName,
+                    'assetId'     => $assetId,
+                ]);
+
+            if ($response->failed()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $response->json('message') ?? 'Gagal menghubungi server Bot Meta.',
+                ], $response->status());
+            }
+
+            $data = $response->json();
+
+            // Cek status dari API
+            if (($data['status'] ?? '') !== 'Success') {
+                return response()->json([
+                    'success' => false,
+                    'message' => $data['message'] ?? 'API mengembalikan status gagal.',
+                ]);
+            }
+
+            // Ambil data dari kedua bucket — persis sesuai struktur API
+            // scheduled.data[] dan published.data[]
+            $scheduledItems = $data['scheduled']['data'] ?? [];
+            $publishedItems = $data['published']['data'] ?? [];
+
+            $totalFromApi = count($scheduledItems) + count($publishedItems);
+
+            if ($totalFromApi === 0) {
+                return response()->json([
+                    'success'   => true,
+                    'message'   => 'Tidak ada post ditemukan dari page ini.',
+                    'synced'    => 0,
+                    'new'       => 0,
+                    'scheduled' => 0,
+                    'published' => 0,
+                ]);
+            }
+
+            $synced   = 0;
+            $newCount = 0;
+
+            // Proses scheduled posts
+            foreach ($scheduledItems as $post) {
+                [$existed] = $this->upsertPost($user->id, $sessionName, $assetId, $post, 'scheduled');
+                if (!$existed) $newCount++;
+                $synced++;
+            }
+
+            // Proses published posts
+            foreach ($publishedItems as $post) {
+                [$existed] = $this->upsertPost($user->id, $sessionName, $assetId, $post, 'published');
+                if (!$existed) $newCount++;
+                $synced++;
+            }
+
+            return response()->json([
+                'success'   => true,
+                'message'   => "{$synced} post ditemukan, {$newCount} baru disimpan.",
+                'synced'    => $synced,
+                'new'       => $newCount,
+                'scheduled' => count($scheduledItems),
+                'published' => count($publishedItems),
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper: upsert satu post ke DB, return [existed (bool)]
+     *
+     * Field mapping dari response API:
+     *   title            → title
+     *   caption          → caption          ("Open Drop-down")
+     *   date             → post_date        ("28 February 10:22")
+     *   status           → status           (lowercase: "published"/"scheduled")
+     *   reach            → reach            (cast ke int)
+     *   likes_reactions  → likes_reactions  (cast ke int)
+     *   comments         → comments         (cast ke int)
+     *   shares           → shares           (cast ke int)
+     *   post_url         → post_url         (bisa null)
+     */
+    private function upsertPost(int $userId, string $sessionName, string $assetId, array $post, string $statusBucket): array
+    {
+        $title   = trim($post['title']   ?? '');
+        $date    = trim($post['date']    ?? '');
+        $status  = $statusBucket; // 'scheduled' atau 'published' — dari bucket, bukan field status
+
+        // Hash unik karena API tidak return post_id
+        // Kombinasi: session + asset + title + date
+        $hash = md5($sessionName . '|' . $assetId . '|' . $title . '|' . $date);
+
+        $existed = \App\Models\MetaPost::where('user_id', $userId)
+            ->where('session_name', $sessionName)
+            ->where('asset_id', $assetId)
+            ->where('post_hash', $hash)
+            ->exists();
+
+        \App\Models\MetaPost::updateOrCreate(
+            [
+                'user_id'      => $userId,
+                'session_name' => $sessionName,
+                'asset_id'     => $assetId,
+                'post_hash'    => $hash,
+            ],
+            [
+                'title'           => $title,
+                'caption'         => $post['caption']         ?? null,
+                'post_date'       => $date,
+                'status'          => $status,
+                'post_url'        => $post['post_url']        ?: null, // null jika kosong
+                'reach'           => (int) ($post['reach']           ?? 0),
+                'likes_reactions' => (int) ($post['likes_reactions'] ?? 0),
+                'comments'        => (int) ($post['comments']        ?? 0),
+                'shares'          => (int) ($post['shares']          ?? 0),
+                'raw_data'        => $post,
+            ]
+        );
+
+        return [$existed];
+    }
 }
