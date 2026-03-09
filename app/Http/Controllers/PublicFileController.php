@@ -7,39 +7,17 @@ use Illuminate\Support\Facades\Storage;
 
 class PublicFileController extends Controller
 {
-    /**
-     * Serve file publik via token
-     * URL: /files/{token}/{filename}
-     */
     public function serve(string $token, string $filename)
     {
         $file = UserFile::where('public_token', $token)
             ->where('is_public', true)
             ->firstOrFail();
 
-        // Pastikan filename cocok (keamanan extra)
-        if ($file->original_name !== urldecode($filename)) {
-            abort(404);
-        }
+        $sub  = $file->folder ? $file->folder->full_path : 'root';
+        $path = "users/{$file->user_id}/{$sub}/{$file->stored_name}";
 
-        $path = $file->storage_path;
+        abort_unless(Storage::disk('local')->exists($path), 404);
 
-        if (!Storage::disk('local')->exists($path)) {
-            abort(404);
-        }
-
-        $mime     = $file->mime_type ?: 'application/octet-stream';
-        $size     = Storage::disk('local')->size($path);
-        $stream   = Storage::disk('local')->readStream($path);
-
-        return response()->stream(function () use ($stream) {
-            fpassthru($stream);
-        }, 200, [
-            'Content-Type'        => $mime,
-            'Content-Length'      => $size,
-            'Content-Disposition' => 'inline; filename="' . $file->original_name . '"',
-            'Cache-Control'       => 'public, max-age=86400',
-            'Accept-Ranges'       => 'bytes',
-        ]);
+        return Storage::disk('local')->download($path, $file->original_name);
     }
 }

@@ -3,87 +3,63 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 class UserFile extends Model
 {
     protected $fillable = [
-        'user_id', 'path', 'original_name', 'stored_name',
+        'user_id', 'folder_id', 'original_name', 'stored_name',
         'mime_type', 'size', 'extension', 'description',
         'public_token', 'is_public',
     ];
 
-    protected $casts = [
-        'is_public' => 'boolean',
-    ];
+    protected $casts = ['is_public' => 'boolean'];
 
-    public const ROOT_FOLDERS = ['meta', 'x'];
+    public function user(): BelongsTo { return $this->belongsTo(User::class); }
+    public function folder(): BelongsTo { return $this->belongsTo(UserFolder::class, 'folder_id'); }
 
-    public function user()
-    {
-        return $this->belongsTo(User::class);
+    public function getStoragePathAttribute(): string {
+        $folder = $this->folder ? $this->folder->full_path : 'root';
+        return "users/{$this->user_id}/{$folder}/{$this->stored_name}";
     }
 
-    // ── Path helpers ──────────────────────────────────────────
-
-    public function getRootFolderAttribute(): string
-    {
-        return explode('/', $this->path)[0];
-    }
-
-    public function getStoragePathAttribute(): string
-    {
-        return "users/{$this->user_id}/{$this->path}/{$this->stored_name}";
-    }
-
-    public function getDownloadUrlAttribute(): string
-    {
+    public function getDownloadUrlAttribute(): string {
         return route('client.files.download', $this->id);
     }
 
-    /** Public URL: /files/{token}/{original_name} */
-    public function getPublicUrlAttribute(): ?string
-    {
+    public function getPublicUrlAttribute(): ?string {
         if (!$this->is_public || !$this->public_token) return null;
-        return url('files/' . $this->public_token . '/' . rawurlencode($this->original_name));
+        return route('files.public', ['token' => $this->public_token, 'filename' => $this->original_name]);
     }
 
-    // ── Display helpers ───────────────────────────────────────
-
-    public function getHumanSizeAttribute(): string
-    {
-        $b = $this->size;
-        if ($b < 1024)       return $b . ' B';
-        if ($b < 1048576)    return round($b / 1024, 1) . ' KB';
-        if ($b < 1073741824) return round($b / 1048576, 1) . ' MB';
-        return round($b / 1073741824, 2) . ' GB';
+    public function getHumanSizeAttribute(): string {
+        $bytes = $this->size;
+        if ($bytes >= 1073741824) return round($bytes / 1073741824, 1) . ' GB';
+        if ($bytes >= 1048576)    return round($bytes / 1048576, 1) . ' MB';
+        if ($bytes >= 1024)       return round($bytes / 1024, 1) . ' KB';
+        return $bytes . ' B';
     }
 
-    public function getTypeAttribute(): string
-    {
+    public function getTypeAttribute(): string {
         $ext = strtolower($this->extension ?? '');
-        if (in_array($ext, ['mp4','mov','avi','mkv','webm','m4v']))        return 'video';
-        if (in_array($ext, ['jpg','jpeg','png','gif','webp','bmp','svg'])) return 'image';
-        if ($ext === 'pdf')                                                  return 'pdf';
-        if (in_array($ext, ['zip','rar','7z','tar','gz']))                  return 'archive';
-        if (in_array($ext, ['txt','md','csv','log']))                       return 'text';
+        if (in_array($ext, ['jpg','jpeg','png','gif','webp','svg','bmp'])) return 'image';
+        if (in_array($ext, ['mp4','mov','avi','mkv','webm'])) return 'video';
+        if ($ext === 'pdf') return 'pdf';
+        if (in_array($ext, ['zip','rar','7z','tar','gz'])) return 'archive';
+        if (in_array($ext, ['txt','md','csv','log'])) return 'text';
         return 'file';
     }
 
-    // ── Token helpers ─────────────────────────────────────────
-
-    /** Generate token baru dan jadikan public */
-    public function makePublic(): string
-    {
-        $token = hash('sha256', $this->user_id . $this->path . $this->stored_name . Str::random(16));
-        $this->update(['public_token' => $token, 'is_public' => true]);
-        return $token;
+    public function makePublic(): void {
+        $this->public_token = hash('sha256', $this->id . $this->user_id . Str::random(32));
+        $this->is_public = true;
+        $this->save();
     }
 
-    /** Cabut akses publik */
-    public function revokePublic(): void
-    {
-        $this->update(['public_token' => null, 'is_public' => false]);
+    public function revokePublic(): void {
+        $this->public_token = null;
+        $this->is_public = false;
+        $this->save();
     }
 }

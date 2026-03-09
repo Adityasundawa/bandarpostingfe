@@ -10,11 +10,10 @@ use App\Http\Controllers\Client\MetaPanelController;
 use App\Http\Controllers\Client\TelegramPanelController;
 use App\Http\Controllers\Client\TiktokPanelController;
 use App\Http\Controllers\Client\XPanelController;
-
-
-
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicFileController;
+
+
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -72,29 +71,18 @@ Route::prefix('client-area')
         // Dashboard utama client
         Route::get('/', [ClientDashboard::class, 'index'])->name('dashboard');
 
-
-
         // File  Panel
-     Route::prefix('files')->name('files.')->group(function () {
-    Route::get('/',                 [FileManagerController::class, 'index'])->name('index');
-    Route::get('/list',             [FileManagerController::class, 'listFiles'])->name('list');
-    Route::get('/tree',             [FileManagerController::class, 'folderTree'])->name('tree');
-    Route::post('/upload',          [FileManagerController::class, 'upload'])->name('upload');
-    Route::get('/download/{file}',  [FileManagerController::class, 'download'])->name('download');
-    Route::patch('/update/{file}',  [FileManagerController::class, 'update'])->name('update');
-    Route::delete('/delete/{file}', [FileManagerController::class, 'destroy'])->name('destroy');
-    Route::post('/folder/create',   [FileManagerController::class, 'createFolder'])->name('folder.create');
-    Route::post('/toggle-public/{file}', [FileManagerController::class, 'togglePublic'])->name('files.toggle-public');
+       Route::prefix('files')->name('files.')->group(function () {
+    Route::get('/',                           [FileManagerController::class, 'index'])->name('index');
+    Route::get('/folder-contents',            [FileManagerController::class, 'getFolderContents'])->name('folder.contents');
+    Route::post('/upload',                    [FileManagerController::class, 'upload'])->name('upload');
+    Route::get('/download/{file}',            [FileManagerController::class, 'download'])->name('download');
+    Route::delete('/file/{file}',             [FileManagerController::class, 'destroy'])->name('destroy');
+    Route::patch('/file/{file}',              [FileManagerController::class, 'update'])->name('update');
+    Route::post('/file/{file}/toggle-public', [FileManagerController::class, 'togglePublic'])->name('toggle.public');
+    Route::post('/folder',                    [FileManagerController::class, 'createFolder'])->name('folder.create');
+    Route::delete('/folder/{folder}',         [FileManagerController::class, 'destroyFolder'])->name('folder.destroy');
 });
-
-// Tambahkan di dalam group client-area/files:
-
-
-// Tambahkan di LUAR semua middleware group (route publik, tidak perlu auth):
-// Di routes/web.php paling bawah:
-Route::get('/files/{token}/{filename}', [PublicFileController::class, 'serve'])
-    ->name('files.public')
-    ->where('filename', '.*');
 
         // Meta (Facebook/IG) Panel
         Route::prefix('meta')->name('meta.')->group(function () {
@@ -112,19 +100,6 @@ Route::get('/files/{token}/{filename}', [PublicFileController::class, 'serve'])
             Route::get('/posts-by-asset', [MetaPanelController::class, 'postsByAsset'])->name('posts.by-asset');
             Route::post('/posts/sync', [MetaPanelController::class, 'syncPosts'])->name('posts.sync');
         });
-
-
-
-
-
-
-
-
-
-
-
-
-
 
         // X (Twitter) Panel
         Route::prefix('x')->name('x.')->group(function () {
@@ -144,6 +119,11 @@ Route::get('/files/{token}/{filename}', [PublicFileController::class, 'serve'])
 // ─────────────────────────────────────────────
 // PROFILE ROUTES (Untuk semua user yang login)
 // ─────────────────────────────────────────────
+
+Route::get('/files/{token}/{filename}', [PublicFileController::class, 'serve'])
+    ->name('files.public')
+    ->where('filename', '.*');
+
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

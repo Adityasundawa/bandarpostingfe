@@ -17,7 +17,7 @@
 
     <!-- Scripts -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
-
+@stack('styles')
     <style>
         :root {
             --bg-primary: #0a0a0f;
@@ -462,4 +462,5 @@
 
     @stack('scripts')
 </body>
+@stack('modals')
 </html>

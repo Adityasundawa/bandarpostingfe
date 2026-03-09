@@ -49,11 +49,9 @@
             </a>
 
         @else
-         {{-- ================= CLIENT NAVIGATION ================= --}}
             {{-- ================= CLIENT NAVIGATION ================= --}}
             <div class="nav-label">Main</div>
 
-            {{-- Client Dashboard --}}
             <a href="{{ route('client.dashboard') }}"
                 class="nav-item {{ request()->routeIs('client.dashboard') ? 'active' : '' }}">
                 <span class="nav-icon"><i class="fas fa-home"></i></span>
@@ -62,33 +60,38 @@
 
             <div class="nav-label">Auto Posting Panels</div>
 
-            {{-- X Panel --}}
             <a href="{{ route('client.x.index') }}"
                 class="nav-item {{ request()->routeIs('client.x.*') ? 'active' : '' }}">
                 <span class="nav-icon"><i class="fab fa-x-twitter"></i></span>
                 X Panel
             </a>
 
-            {{-- Meta Panel --}}
             <a href="{{ route('client.meta.index') }}"
                 class="nav-item {{ request()->routeIs('client.meta.*') ? 'active' : '' }}">
                 <span class="nav-icon"><i class="fab fa-facebook"></i></span>
                 Meta Panel
             </a>
 
-            {{-- Tiktok Panel --}}
             <a href="{{ route('client.tiktok.index') }}"
                 class="nav-item {{ request()->routeIs('client.tiktok.*') ? 'active' : '' }}">
                 <span class="nav-icon"><i class="fab fa-tiktok"></i></span>
                 Tiktok Panel
             </a>
 
-            {{-- Telegram Panel --}}
             <a href="{{ route('client.telegram.index') }}"
                 class="nav-item {{ request()->routeIs('client.telegram.*') ? 'active' : '' }}">
                 <span class="nav-icon"><i class="fab fa-telegram"></i></span>
                 Telegram Panel
             </a>
+
+            <div class="nav-label">Storage</div>
+
+            <a href="{{ route('client.files.index') }}"
+                class="nav-item {{ request()->routeIs('client.files.*') ? 'active' : '' }}">
+                <span class="nav-icon"><i class="fas fa-hdd"></i></span>
+                File Manager
+            </a>
+
         @endif
 
     </nav>

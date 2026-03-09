@@ -4,355 +4,301 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Models\UserFile;
+use App\Models\UserFolder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class FileManagerController extends Controller
 {
-    const MAX_FILE_SIZE_MB = 500;
+    // ── Helpers ────────────────────────────────────────────────────────
 
-    /**
-     * Halaman utama — tampilkan tree folder + file di path aktif
-     */
-    public function index(Request $request)
+    private function folderPath(UserFolder $folder): string
     {
-        $user        = auth()->user();
-        $activePath  = $request->query('path', 'meta');
-
-        // Sanitize path
-        $activePath  = $this->sanitizePath($activePath);
-
-        // Bangun tree folder dari semua path yang ada di DB + session custom
-        $folderTree  = $this->buildFolderTree($user->id);
-
-        // Validasi path: harus ada di tree atau root default
-        $allPaths    = $this->getAllPaths($user->id);
-        if (!in_array($activePath, $allPaths)) {
-            $activePath = 'meta';
-        }
-
-        // File di path ini saja (tidak rekursif)
-        $files = UserFile::where('user_id', $user->id)
-            ->where('path', $activePath)
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        $filesJson = $files->map(fn($f) => [
-            'id'            => $f->id,
-            'original_name' => $f->original_name,
-            'extension'     => $f->extension,
-            'type'          => $f->type,
-            'size'          => $f->size,
-            'human_size'    => $f->human_size,
-            'description'   => $f->description,
-            'created_at'    => $f->created_at->format('d M Y, H:i'),
-            'download_url'  => $f->download_url,
-            'public_url'    => $f->public_url,
-            'is_public'     => $f->is_public,
-        ])->values();
-
-        // Stats per path (file count + size)
-        $pathStats = $this->getPathStats($user->id);
-
-        return view('client.files.index', compact(
-            'files', 'filesJson', 'activePath', 'folderTree', 'pathStats'
-        ));
+        return $folder->full_path;
     }
 
-    /**
-     * AJAX: list file di path tertentu
-     */
-    public function listFiles(Request $request)
+    private function storagePath(int $userId, ?UserFolder $folder, string $filename): string
     {
-        $user   = auth()->user();
-        $path   = $this->sanitizePath($request->query('path', 'meta'));
+        $sub = $folder ? $folder->full_path : 'root';
+        return "users/{$userId}/{$sub}/{$filename}";
+    }
 
-        $files  = UserFile::where('user_id', $user->id)
-            ->where('path', $path)
+    private function buildTree(int $userId, ?int $parentId = null): array
+    {
+        $folders = UserFolder::where('user_id', $userId)
+            ->where('parent_id', $parentId)
+            ->orderBy('name')
+            ->get();
+
+        return $folders->map(function ($f) use ($userId) {
+            return [
+                'id'       => $f->id,
+                'name'     => $f->name,
+                'children' => $this->buildTree($userId, $f->id),
+                'count'    => UserFile::where('folder_id', $f->id)->count(),
+            ];
+        })->toArray();
+    }
+
+    private function fileToArray(UserFile $file): array
+    {
+        return [
+            'id'            => $file->id,
+            'original_name' => $file->original_name,
+            'extension'     => $file->extension,
+            'type'          => $file->type,
+            'size'          => $file->size,
+            'human_size'    => $file->human_size,
+            'description'   => $file->description,
+            'created_at'    => $file->created_at->format('d M Y, H:i'),
+            'download_url'  => $file->download_url,
+            'public_url'    => $file->public_url,
+            'is_public'     => $file->is_public,
+        ];
+    }
+
+    // ── Pages ──────────────────────────────────────────────────────────
+
+    public function index(Request $request)
+    {
+        $user = auth()->user();
+        $folderTree = $this->buildTree($user->id);
+
+        // Root files (no folder)
+        $files = UserFile::where('user_id', $user->id)
+            ->whereNull('folder_id')
             ->orderBy('created_at', 'desc')
             ->get()
+            ->map(fn($f) => $this->fileToArray($f));
+
+        $totalSize = UserFile::where('user_id', $user->id)->sum('size');
+
+        return view('client.files.index', compact('folderTree', 'files', 'totalSize'));
+    }
+
+    // ── AJAX ───────────────────────────────────────────────────────────
+
+    public function getFolderContents(Request $request)
+    {
+        $user     = auth()->user();
+        $folderId = $request->input('folder_id'); // null = root
+
+        if ($folderId) {
+            $folder = UserFolder::where('id', $folderId)->where('user_id', $user->id)->firstOrFail();
+            $breadcrumb = $folder->breadcrumb;
+        } else {
+            $folder     = null;
+            $breadcrumb = [];
+        }
+
+        $files = UserFile::where('user_id', $user->id)
+            ->where('folder_id', $folderId)
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(fn($f) => $this->fileToArray($f));
+
+        $subfolders = UserFolder::where('user_id', $user->id)
+            ->where('parent_id', $folderId)
+            ->orderBy('name')
+            ->get()
             ->map(fn($f) => [
-                'id'            => $f->id,
-                'original_name' => $f->original_name,
-                'extension'     => $f->extension,
-                'type'          => $f->type,
-                'size'          => $f->size,
-                'human_size'    => $f->human_size,
-                'description'   => $f->description,
-                'created_at'    => $f->created_at->format('d M Y, H:i'),
-                'download_url'  => $f->download_url,
-            'public_url'    => $f->public_url,
-            'is_public'     => $f->is_public,
+                'id'    => $f->id,
+                'name'  => $f->name,
+                'count' => UserFile::where('folder_id', $f->id)->count(),
             ]);
 
         return response()->json([
             'files'      => $files,
-            'total'      => $files->count(),
-            'total_size' => $this->humanSize($files->sum('size')),
-            'path'       => $path,
+            'subfolders' => $subfolders,
+            'breadcrumb' => $breadcrumb,
+            'folder_id'  => $folderId,
         ]);
     }
 
-    /**
-     * Upload file ke path tertentu
-     */
+    // ── Upload ─────────────────────────────────────────────────────────
+
     public function upload(Request $request)
     {
         $request->validate([
-            'path'   => 'required|string|max:200',
-            'files'  => 'required|array|max:20',
-            'files.*'=> 'required|file|max:' . (self::MAX_FILE_SIZE_MB * 1024),
+            'files'     => 'required|array|max:20',
+            'files.*'   => 'required|file|max:512000',
+            'folder_id' => 'nullable|integer',
         ]);
 
-        $user  = auth()->user();
-        $path  = $this->sanitizePath($request->path);
-        $saved = 0;
+        $user     = auth()->user();
+        $folderId = $request->input('folder_id') ?: null;
 
+        if ($folderId) {
+            $folder = UserFolder::where('id', $folderId)->where('user_id', $user->id)->firstOrFail();
+        } else {
+            $folder = null;
+        }
+
+        $uploaded = [];
         foreach ($request->file('files') as $file) {
             $ext        = strtolower($file->getClientOriginalExtension());
-            $stored     = Str::uuid() . '.' . $ext;
-            $storagePath= "users/{$user->id}/{$path}/{$stored}";
+            $stored     = $file->getClientOriginalName(); // pakai nama asli
+            $path       = $this->storagePath($user->id, $folder, $stored);
 
-            Storage::disk('local')->put($storagePath, file_get_contents($file));
+            Storage::disk('local')->put($path, file_get_contents($file));
 
-            UserFile::create([
+            $record = UserFile::create([
                 'user_id'       => $user->id,
-                'path'          => $path,
+                'folder_id'     => $folderId,
                 'original_name' => $file->getClientOriginalName(),
                 'stored_name'   => $stored,
                 'mime_type'     => $file->getMimeType(),
                 'size'          => $file->getSize(),
                 'extension'     => $ext,
             ]);
-            $saved++;
+
+            // Langsung generate public URL
+            $record->makePublic();
+            $record->refresh();
+
+            $uploaded[] = $this->fileToArray($record);
         }
 
         return response()->json([
             'success' => true,
-            'message' => "{$saved} file berhasil diupload ke /{$path}.",
+            'message' => count($uploaded) . ' file berhasil diupload.',
+            'files'   => $uploaded,
         ]);
     }
 
-    /**
-     * Download file
-     */
+    // ── Download ───────────────────────────────────────────────────────
+
     public function download(UserFile $file)
     {
-        $this->authorizeFile($file);
-        $path = $file->storage_path;
-        if (!Storage::disk('local')->exists($path)) abort(404);
+        abort_if($file->user_id !== auth()->id(), 403);
+
+        $path = $this->storagePath($file->user_id, $file->folder, $file->stored_name);
+        abort_unless(Storage::disk('local')->exists($path), 404);
+
         return Storage::disk('local')->download($path, $file->original_name);
     }
 
-    /**
-     * Update nama / deskripsi file
-     */
-    public function update(Request $request, UserFile $file)
-    {
-        $this->authorizeFile($file);
-        $request->validate([
-            'original_name' => 'sometimes|string|max:255',
-            'description'   => 'sometimes|nullable|string|max:500',
-        ]);
-        $file->update($request->only(['original_name', 'description']));
-        return response()->json(['success' => true, 'message' => 'Disimpan.']);
-    }
+    // ── Delete ─────────────────────────────────────────────────────────
 
-    /**
-     * Hapus file
-     */
     public function destroy(UserFile $file)
     {
-        $this->authorizeFile($file);
-        Storage::disk('local')->delete($file->storage_path);
+        abort_if($file->user_id !== auth()->id(), 403);
+
+        $path = $this->storagePath($file->user_id, $file->folder, $file->stored_name);
+        Storage::disk('local')->delete($path);
         $file->delete();
+
         return response()->json(['success' => true]);
     }
 
-    /**
-     * Buat subfolder baru di dalam path tertentu
-     * Contoh: parent='meta', name='isco' → path='meta/isco'
-     * Contoh: parent='meta/isco', name='sd' → path='meta/isco/sd'
-     */
+    // ── Toggle Public ──────────────────────────────────────────────────
+
+    public function togglePublic(UserFile $file)
+    {
+        abort_if($file->user_id !== auth()->id(), 403);
+
+        if ($file->is_public) {
+            $file->revokePublic();
+        } else {
+            $file->makePublic();
+        }
+
+        $file->refresh(); // pastikan data terbaru
+
+        return response()->json([
+            'success'    => true,
+            'is_public'  => $file->is_public,
+            'public_url' => $file->public_url,
+        ]);
+    }
+
+    // ── Create Folder ──────────────────────────────────────────────────
+
     public function createFolder(Request $request)
     {
         $request->validate([
-            'parent' => 'required|string|max:200',  // path parent, contoh: 'meta' atau 'meta/isco'
-            'name'   => ['required', 'string', 'max:50', 'regex:/^[a-zA-Z0-9_\-]+$/'],
-        ], [
-            'name.regex' => 'Nama folder hanya boleh huruf, angka, - dan _',
+            'name'      => 'required|string|max:60|regex:/^[a-zA-Z0-9_\-]+$/',
+            'parent_id' => 'nullable|integer',
         ]);
 
-        $user      = auth()->user();
-        $parent    = $this->sanitizePath($request->parent);
-        $name      = strtolower(trim($request->name));
-        $newPath   = $parent . '/' . $name;
+        $user     = auth()->user();
+        $parentId = $request->input('parent_id') ?: null;
 
-        // Cek duplikat
-        $allPaths = $this->getAllPaths($user->id);
-        if (in_array($newPath, $allPaths)) {
+        if ($parentId) {
+            UserFolder::where('id', $parentId)->where('user_id', $user->id)->firstOrFail();
+        }
+
+        $exists = UserFolder::where('user_id', $user->id)
+            ->where('parent_id', $parentId)
+            ->where('name', $request->name)
+            ->exists();
+
+        if ($exists) {
             return response()->json(['success' => false, 'message' => 'Folder sudah ada.'], 422);
         }
 
-        // Simpan di session agar folder kosong tetap muncul
-        $customPaths = session("custom_paths_{$user->id}", []);
-        $customPaths[] = $newPath;
-        session(["custom_paths_{$user->id}" => array_unique($customPaths)]);
+        $folder = UserFolder::create([
+            'user_id'   => $user->id,
+            'parent_id' => $parentId,
+            'name'      => $request->name,
+        ]);
 
         return response()->json([
-            'success'  => true,
-            'message'  => "Folder /{$newPath} berhasil dibuat.",
-            'new_path' => $newPath,
-            'parent'   => $parent,
-            'name'     => $name,
+            'success' => true,
+            'folder'  => ['id' => $folder->id, 'name' => $folder->name, 'count' => 0],
         ]);
     }
 
-    /**
-     * AJAX: ambil tree folder untuk sidebar refresh
-     */
-    public function folderTree(Request $request)
+    // ── Update (rename + description) ──────────────────────────────────
+
+    public function update(Request $request, UserFile $file)
     {
-        $user = auth()->user();
-        return response()->json([
-            'tree'      => $this->buildFolderTree($user->id),
-            'pathStats' => $this->getPathStats($user->id),
+        abort_if($file->user_id !== auth()->id(), 403);
+
+        $request->validate([
+            'original_name' => 'required|string|max:255',
+            'description'   => 'nullable|string|max:500',
         ]);
+
+        $file->update([
+            'original_name' => $request->original_name,
+            'description'   => $request->description,
+        ]);
+
+        return response()->json(['success' => true]);
     }
 
-    // ─── Admin ───────────────────────────────────────────────────
+    // ── Delete Folder ──────────────────────────────────────────────────
 
-    public function adminIndex(Request $request)
+    public function destroyFolder(UserFolder $folder)
     {
-        if (auth()->user()->role !== 1) abort(403);
-        $query = UserFile::with('user')->orderBy('created_at', 'desc');
-        if ($uid = $request->query('user_id')) $query->where('user_id', $uid);
-        if ($path = $request->query('path'))   $query->where('path', 'like', $path . '%');
-        return view('admin.files.index', ['files' => $query->paginate(50)]);
+        abort_if($folder->user_id !== auth()->id(), 403);
+
+        // Delete all files inside recursively
+        $this->deleteFolderContents($folder);
+        $folder->delete();
+
+        return response()->json(['success' => true]);
     }
 
-    // ─── Private helpers ─────────────────────────────────────────
-
-    /**
-     * Sanitize path: hilangkan karakter berbahaya, normalize slash
-     * 'meta//isco/../x' → 'meta/isco'
-     */
-    private function sanitizePath(string $path): string
+    private function deleteFolderContents(UserFolder $folder): void
     {
-        // Hapus karakter berbahaya
-        $path = preg_replace('/[^a-zA-Z0-9\/\-_]/', '', $path);
-        // Normalize multiple slashes
-        $path = preg_replace('/\/+/', '/', trim($path, '/'));
-        // Max 5 level deep
-        $parts = array_slice(explode('/', $path), 0, 5);
-        // Pastikan root valid
-        if (empty($parts[0])) $parts[0] = 'meta';
-        return implode('/', $parts);
-    }
-
-    /**
-     * Bangun folder tree sebagai array nested
-     * [
-     *   'meta' => [
-     *     'name' => 'meta', 'path' => 'meta', 'depth' => 1,
-     *     'children' => [
-     *       'isco' => ['name'=>'isco','path'=>'meta/isco','depth'=>2,'children'=>[...]]
-     *     ]
-     *   ],
-     *   'x' => [...]
-     * ]
-     */
-    private function buildFolderTree(int $userId): array
-    {
-        $allPaths = $this->getAllPaths($userId);
-        sort($allPaths);
-
-        $tree = [];
-
-        // Pastikan root defaults selalu ada
-        foreach (UserFile::ROOT_FOLDERS as $root) {
-            if (!in_array($root, $allPaths)) $allPaths[] = $root;
+        foreach ($folder->files as $file) {
+            $path = $this->storagePath($file->user_id, $file->folder, $file->stored_name);
+            Storage::disk('local')->delete($path);
+            $file->delete();
         }
-        sort($allPaths);
-
-        foreach ($allPaths as $path) {
-            $parts  = explode('/', $path);
-            $cursor = &$tree;
-
-            foreach ($parts as $i => $part) {
-                if (!isset($cursor[$part])) {
-                    $cursor[$part] = [
-                        'name'     => $part,
-                        'path'     => implode('/', array_slice($parts, 0, $i + 1)),
-                        'depth'    => $i + 1,
-                        'children' => [],
-                    ];
-                }
-                $cursor = &$cursor[$part]['children'];
-            }
-        }
-
-        return $tree;
-    }
-
-    /**
-     * Semua path yang sudah ada (DB + session custom)
-     */
-    private function getAllPaths(int $userId): array
-    {
-        $dbPaths     = UserFile::where('user_id', $userId)->distinct()->pluck('path')->toArray();
-        $customPaths = session("custom_paths_{$userId}", []);
-        $rootPaths   = UserFile::ROOT_FOLDERS;
-
-        return array_values(array_unique(array_merge($rootPaths, $dbPaths, $customPaths)));
-    }
-
-    /**
-     * Stats (file count + total size) per path
-     */
-    private function getPathStats(int $userId): array
-    {
-        $rows = UserFile::where('user_id', $userId)
-            ->selectRaw('path, COUNT(*) as cnt, SUM(size) as total_size')
-            ->groupBy('path')
-            ->get();
-
-        $stats = [];
-        foreach ($rows as $row) {
-            $stats[$row->path] = [
-                'count' => $row->cnt,
-                'size'  => $row->total_size,
-            ];
-        }
-        return $stats;
-    }
-
-    /**
-     * Toggle public URL untuk file
-     */
-    public function togglePublic(UserFile $file)
-    {
-        $this->authorizeFile($file);
-        if ($file->is_public) {
-            $file->revokePublic();
-            return response()->json(["success"=>true,"is_public"=>false,"public_url"=>null,"message"=>"Akses publik dicabut."]);
-        } else {
-            $token = $file->makePublic();
-            return response()->json(["success"=>true,"is_public"=>true,"public_url"=>$file->public_url,"message"=>"Link publik aktif."]);
+        foreach ($folder->children as $child) {
+            $this->deleteFolderContents($child);
+            $child->delete();
         }
     }
 
-    private function authorizeFile(UserFile $file): void
-    {
-        if ($file->user_id !== auth()->id()) abort(403);
-    }
+    // ── Public Serve ───────────────────────────────────────────────────
 
-    private function humanSize(int $bytes): string
+    public function adminIndex()
     {
-        if ($bytes < 1024)       return $bytes . ' B';
-        if ($bytes < 1048576)    return round($bytes / 1024, 1) . ' KB';
-        if ($bytes < 1073741824) return round($bytes / 1048576, 1) . ' MB';
-        return round($bytes / 1073741824, 2) . ' GB';
+        return view('admin.files.index');
     }
 }
