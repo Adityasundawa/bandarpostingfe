@@ -93,7 +93,6 @@
 .metric-item{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-muted);min-width:28px}
 .metric-item i{font-size:11px}
 .metric-item span{font-weight:600;color:var(--text-primary)}
-.metric-item span[data-val="0"]{color:var(--text-muted);font-weight:400}
 
 /* Link btn */
 .post-link-btn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);border:1px solid var(--border);border-radius:6px;font-size:12px;flex-shrink:0;transition:all .2s;text-decoration:none}
@@ -288,30 +287,22 @@
             </div>
             <div id="posts-empty" class="empty-state" style="display:none">
                 <i class="fas fa-photo-video"></i>
-                <p style="margin:0 0 12px;font-size:13px">Belum ada konten tersimpan.<br>Klik <strong>Sync dari FB</strong> untuk mengambil data.</p>
+                <p style="margin:0 0 14px;font-size:14px">Belum ada konten tersimpan.</p>
+                <button class="btn-sync-posts" onclick="syncPosts()"><i class="fas fa-sync-alt"></i> Tarik dari FB</button>
             </div>
-            <div id="posts-list" style="max-height:440px;overflow-y:auto;flex:1"></div>
+            <div id="posts-list" style="overflow-y:auto;max-height:480px"></div>
         </div>
     </div>
 </div>
 
-{{-- COOKIE MODAL --}}
-<div id="cookieModal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:10000;justify-content:center;align-items:center;backdrop-filter:blur(4px)">
-    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:24px;width:100%;max-width:480px;box-shadow:0 10px 25px rgba(0,0,0,.2)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-            <h3 id="cookieModalTitle" style="font-size:17px;font-weight:700;color:var(--text-primary);margin:0">Login Sesi</h3>
-            <button onclick="closeCookieModal()" style="background:none;border:none;font-size:18px;color:var(--text-muted);cursor:pointer"><i class="fas fa-times"></i></button>
-        </div>
+{{-- Cookie Modal --}}
+<div id="cookieModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998;align-items:center;justify-content:center;padding:20px">
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:28px;width:100%;max-width:480px;position:relative">
+        <button onclick="closeCookieModal()" style="position:absolute;top:16px;right:16px;background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer"><i class="fas fa-times"></i></button>
+        <div style="font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:20px" id="cookieModalTitle">Login Sesi</div>
         <input type="hidden" id="cookieSessionName">
         <div id="cookieStep1">
-            <div style="background:rgba(24,119,242,.05);border:1px dashed #1877F2;padding:14px;border-radius:8px;margin-bottom:18px">
-                <h4 style="margin:0 0 10px;color:#1877F2;font-size:13px"><i class="fas fa-info-circle"></i> Cara Mendapatkan Cookies:</h4>
-                <ol style="margin:0;padding-left:18px;font-size:13px;color:var(--text-primary);line-height:1.7">
-                    <li>Install <b>Cookie Editor</b> dari <a href="https://chromewebstore.google.com/detail/cookie-editor/ookdjilphngeeeghgngjabigmpepanpl" target="_blank" style="color:#1877F2;font-weight:700;text-decoration:none">Chrome Web Store</a>.</li>
-                    <li>Buka <a href="https://business.facebook.com/" target="_blank" style="color:#1877F2;text-decoration:none"><b>business.facebook.com</b></a> & login.</li>
-                    <li>Klik Cookie Editor → <b>Export as JSON</b>.</li>
-                </ol>
-            </div>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6">Install ekstensi <strong>Cookie Editor</strong> di browser, buka Facebook, lalu export semua cookies sebagai JSON.</p>
             <button onclick="goToCookieStep2()" style="width:100%;background:#1877F2;color:#fff;border:none;padding:12px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Saya Sudah Punya Cookie <i class="fas fa-arrow-right" style="margin-left:6px"></i></button>
         </div>
         <div id="cookieStep2" style="display:none">
@@ -336,6 +327,55 @@ const qsa = s   => document.querySelectorAll(s);
 let curStep = 1, curSession = null, curAsset = null;
 let allPosts = [], activeFilter = 'all';
 
+// ── State Persistence (sessionStorage) ───────────────────────
+const SS_KEY = 'meta_wizard_state';
+function saveState() {
+    sessionStorage.setItem(SS_KEY, JSON.stringify({
+        step    : curStep,
+        session : curSession,
+        asset   : curAsset,
+        filter  : activeFilter
+    }));
+}
+function loadState() {
+    try { return JSON.parse(sessionStorage.getItem(SS_KEY)) || null; } catch(e) { return null; }
+}
+function clearState() { sessionStorage.removeItem(SS_KEY); }
+
+// ── Restore State setelah refresh ────────────────────────────
+function restoreState() {
+    const s = loadState();
+    if (!s || !s.session) return; // tidak ada state → tetap di step 1
+
+    curSession   = s.session;
+    curAsset     = s.asset;
+    activeFilter = s.filter || 'all';
+
+    if (s.step >= 2) {
+        ['t2-session', 't3-session'].forEach(id => { if (el(id)) el(id).textContent = curSession; });
+        if (el('form-session-name')) el('form-session-name').value = curSession;
+    }
+
+    if (s.step === 3 && curAsset) {
+        if (el('t3-asset'))     el('t3-asset').textContent  = curAsset.page_name || curAsset.asset_id;
+        if (el('b-name'))       el('b-name').textContent    = curAsset.page_name || 'Unknown';
+        if (el('b-assetid'))    el('b-assetid').textContent = curAsset.asset_id;
+        if (el('form-asset-id')) el('form-asset-id').value  = curAsset.asset_id;
+        const ini = (curAsset.page_name || 'P').charAt(0).toUpperCase();
+        if (el('b-avatar')) el('b-avatar').innerHTML = curAsset.picture
+            ? `<img src="${curAsset.picture}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.parentElement.textContent='${ini}'">`
+            : ini;
+        // Restore filter tab
+        qsa('.tab-btn').forEach(b => b.classList.remove('active'));
+        if (el('tab-' + activeFilter)) el('tab-' + activeFilter).classList.add('active');
+        goToStep(3);
+        loadPosts();
+    } else if (s.step === 2) {
+        goToStep(2);
+        loadAssets(curSession);
+    }
+}
+
 // ── Loader ────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     fetch('{{ route("client.meta.verify") }}', { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } })
@@ -344,7 +384,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (d.success) {
             el('loader-title').innerText = 'Terhubung!';
             el('loader-desc').innerText  = 'Membuka Dashboard...';
-            setTimeout(() => { const l = el('meta-loader'); l.style.opacity = '0'; setTimeout(() => l.style.display = 'none', 600); }, 700);
+            setTimeout(() => {
+                const l = el('meta-loader');
+                l.style.opacity = '0';
+                setTimeout(() => {
+                    l.style.display = 'none';
+                    restoreState(); // ← restore state setelah loader hilang
+                }, 600);
+            }, 700);
         } else {
             el('loader-title').innerText = 'Koneksi Ditolak'; el('loader-title').style.color = '#EF4444';
             qs('.fab.fa-facebook').style.color = '#EF4444'; qs('.pulse-ring').style.background = '#EF4444';
@@ -372,19 +419,23 @@ function goToStep(n) {
         if (i < n - 1) c.classList.add('done');
         if (i === n - 1) c.classList.add('active');
     }
+    saveState(); // ← simpan setiap pindah step
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function backToStep(n) {
-    if (n <= 1) { curSession = null; curAsset = null; allPosts = []; }
-    if (n <= 2) { curAsset = null; allPosts = []; }
+    if (n <= 1) { curSession = null; curAsset = null; allPosts = []; clearState(); }
+    if (n <= 2) { curAsset = null; allPosts = []; saveState(); }
     goToStep(n);
 }
 
 // ── Step 1 ────────────────────────────────────────────────────
 function pilihSesi(name) {
     curSession = name;
+    curAsset = null;
+    allPosts = [];
     ['t2-session', 't3-session'].forEach(id => el(id).textContent = name);
     el('form-session-name').value = name;
+    saveState(); // ← simpan sesi yang dipilih
     goToStep(2);
     loadAssets(name);
 }
@@ -408,7 +459,7 @@ function renderAssets(assets) {
         card.className = 'asset-card-sel'; card.id = 'acard-' + a.id;
         card.onclick = () => pilihAsset(a);
         card.innerHTML = `
-            <div class="asset-avatar">${a.picture ? `<img src="${a.picture}" onerror="this.parentElement.textContent='${ini}'">` : ini}</div>
+            <div class="asset-avatar">${a.picture ? `<img src="${e(a.picture)}" onerror="this.parentElement.textContent='${ini}'">` : ini}</div>
             <div style="flex:1;min-width:0">
                 <div style="font-size:13px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${e(a.page_name||'')}">${e(a.page_name||'Unknown')}</div>
                 <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent);margin-top:2px">${e(a.asset_id)}</div>
@@ -442,14 +493,15 @@ function deleteAsset(id, btn) {
 // ── Step 3: Pilih Asset → Posts ───────────────────────────────
 function pilihAsset(asset) {
     curAsset = asset;
-    el('t3-asset').textContent = asset.page_name || asset.asset_id;
-    el('b-name').textContent   = asset.page_name || 'Unknown';
+    el('t3-asset').textContent  = asset.page_name || asset.asset_id;
+    el('b-name').textContent    = asset.page_name || 'Unknown';
     el('b-assetid').textContent = asset.asset_id;
-    el('form-asset-id').value  = asset.asset_id;
+    el('form-asset-id').value   = asset.asset_id;
     const ini = (asset.page_name || 'P').charAt(0).toUpperCase();
     el('b-avatar').innerHTML = asset.picture
         ? `<img src="${asset.picture}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.parentElement.textContent='${ini}'">`
         : ini;
+    saveState(); // ← simpan asset yang dipilih
     goToStep(3);
     loadPosts();
 }
@@ -527,6 +579,7 @@ function filterPosts(f) {
     activeFilter = f;
     qsa('.tab-btn').forEach(b => b.classList.remove('active'));
     el('tab-' + f).classList.add('active');
+    saveState(); // ← simpan filter aktif
     renderPosts();
 }
 
@@ -545,10 +598,18 @@ function submitCookies() {
     .catch(()=>{msg.style.cssText='display:block;background:rgba(239,68,68,.1);color:#EF4444;padding:10px;border-radius:8px;font-size:13px;margin-bottom:12px';msg.innerHTML='Koneksi gagal.';btn.innerHTML='<i class="fas fa-sign-in-alt" style="margin-right:6px"></i> Inject Cookies & Login';btn.disabled=false;});
 }
 
-// ── Helpers ───────────────────────────────────────────────────
-function e(str) { const d=document.createElement('div'); d.appendChild(document.createTextNode(String(str))); return d.innerHTML; }
-let toastT;
-function showToast(type, msg) { const t=el('toast'); t.className='toast '+type+' show'; el('toast-msg').textContent=msg; clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),3500); }
+// ── Toast ─────────────────────────────────────────────────────
+let toastTimer;
+function showToast(type, msg) {
+    const t = el('toast'); t.className = 'toast ' + type;
+    el('toast-msg').textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ── Escape helper ─────────────────────────────────────────────
+function e(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 </script>
 
 @endsection
