@@ -12,8 +12,6 @@ use App\Http\Controllers\Client\TiktokPanelController;
 use App\Http\Controllers\Client\XPanelController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicFileController;
-
-
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -72,17 +70,17 @@ Route::prefix('client-area')
         Route::get('/', [ClientDashboard::class, 'index'])->name('dashboard');
 
         // File  Panel
-       Route::prefix('files')->name('files.')->group(function () {
-    Route::get('/',                           [FileManagerController::class, 'index'])->name('index');
-    Route::get('/folder-contents',            [FileManagerController::class, 'getFolderContents'])->name('folder.contents');
-    Route::post('/upload',                    [FileManagerController::class, 'upload'])->name('upload');
-    Route::get('/download/{file}',            [FileManagerController::class, 'download'])->name('download');
-    Route::delete('/file/{file}',             [FileManagerController::class, 'destroy'])->name('destroy');
-    Route::patch('/file/{file}',              [FileManagerController::class, 'update'])->name('update');
-    Route::post('/file/{file}/toggle-public', [FileManagerController::class, 'togglePublic'])->name('toggle.public');
-    Route::post('/folder',                    [FileManagerController::class, 'createFolder'])->name('folder.create');
-    Route::delete('/folder/{folder}',         [FileManagerController::class, 'destroyFolder'])->name('folder.destroy');
-});
+        Route::prefix('files')->name('files.')->group(function () {
+            Route::get('/', [FileManagerController::class, 'index'])->name('index');
+            Route::get('/folder-contents', [FileManagerController::class, 'getFolderContents'])->name('folder.contents');
+            Route::post('/upload', [FileManagerController::class, 'upload'])->name('upload');
+            Route::get('/download/{file}', [FileManagerController::class, 'download'])->name('download');
+            Route::delete('/file/{file}', [FileManagerController::class, 'destroy'])->name('destroy');
+            Route::patch('/file/{file}', [FileManagerController::class, 'update'])->name('update');
+            Route::post('/file/{file}/toggle-public', [FileManagerController::class, 'togglePublic'])->name('toggle.public');
+            Route::post('/folder', [FileManagerController::class, 'createFolder'])->name('folder.create');
+            Route::delete('/folder/{folder}', [FileManagerController::class, 'destroyFolder'])->name('folder.destroy');
+        });
 
         // Meta (Facebook/IG) Panel
         Route::prefix('meta')->name('meta.')->group(function () {
@@ -99,6 +97,11 @@ Route::prefix('client-area')
             // Post Management Meta
             Route::get('/posts-by-asset', [MetaPanelController::class, 'postsByAsset'])->name('posts.by-asset');
             Route::post('/posts/sync', [MetaPanelController::class, 'syncPosts'])->name('posts.sync');
+
+            // Schedule Post
+            Route::post('/schedule', [MetaPanelController::class, 'schedulePost'])->name('schedule');
+            Route::get('/queue-status', [MetaPanelController::class, 'checkQueueStatus'])->name('queue.status');
+
         });
 
         // X (Twitter) Panel

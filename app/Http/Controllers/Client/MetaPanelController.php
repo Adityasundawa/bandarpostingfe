@@ -12,11 +12,11 @@ class MetaPanelController extends Controller
     /**
      * Tampilkan halaman Client Area (Meta Panel)
      */
-   public function index()
+    public function index()
     {
         $user = auth()->user();
 
-        if (!$user->apiMetaToken) {
+        if (! $user->apiMetaToken) {
             return view('client.meta.setup');
         }
 
@@ -29,7 +29,7 @@ class MetaPanelController extends Controller
             $response = Http::timeout(10)
                 ->withToken($tokenData->token)
                 ->acceptJson()
-                ->get($baseUrl . '/list-sessions');
+                ->get($baseUrl.'/list-sessions');
 
             if ($response->successful() && $response->json('status') === 'Success') {
                 $activeSessions = $response->json('sessions');
@@ -41,6 +41,7 @@ class MetaPanelController extends Controller
 
         return view('client.meta.index', compact('tokenData', 'activeSessions'));
     }
+
     /**
      * Verifikasi dan Simpan Token
      */
@@ -48,7 +49,7 @@ class MetaPanelController extends Controller
     {
         // 1. Validasi input form
         $request->validate([
-            'token' => 'required|string'
+            'token' => 'required|string',
         ]);
 
         // 2. HIT API /status untuk mengecek keaslian token
@@ -58,12 +59,12 @@ class MetaPanelController extends Controller
         $response = Http::timeout(15)
             ->withToken($request->token)
             ->acceptJson()
-            ->get($baseUrl . '/status');
+            ->get($baseUrl.'/status');
 
         // 3. Jika gagal (misal 401 Unauthorized), kembalikan ke halaman setup dengan pesan error
         if ($response->failed()) {
             return back()->withErrors([
-                'token' => 'Token tidak valid, expired, atau tidak ditemukan di server.'
+                'token' => 'Token tidak valid, expired, atau tidak ditemukan di server.',
             ])->withInput();
         }
 
@@ -82,14 +83,13 @@ class MetaPanelController extends Controller
                 'sessions' => [
                     // Dummy data awal, nantinya bisa diupdate dengan HIT /list-sessions
                     ['session_name' => 'akun_1', 'created_at' => now()->toISOString()],
-                    ['session_name' => 'akun_2', 'created_at' => now()->toISOString()]
-                ]
+                    ['session_name' => 'akun_2', 'created_at' => now()->toISOString()],
+                ],
             ]
         );
 
         return redirect()->route('client.meta.index')->with('success', 'Token Meta berhasil diverifikasi dan dihubungkan!');
     }
-
 
     /**
      * Verifikasi Token via AJAX saat masuk halaman Index
@@ -98,7 +98,7 @@ class MetaPanelController extends Controller
     {
         $user = auth()->user();
 
-        if (!$user->apiMetaToken) {
+        if (! $user->apiMetaToken) {
             return response()->json(['success' => false, 'message' => 'Token tidak ditemukan di database.'], 404);
         }
 
@@ -107,7 +107,7 @@ class MetaPanelController extends Controller
         $response = Http::timeout(15)
             ->withToken($user->apiMetaToken->token)
             ->acceptJson()
-            ->get($baseUrl . '/status');
+            ->get($baseUrl.'/status');
 
         if ($response->failed()) {
             // Ambil pesan langsung dari API Postman-mu (misal: "Token expired sejak...")
@@ -118,29 +118,28 @@ class MetaPanelController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => $message
+                'message' => $message,
             ], 401);
         }
 
         // Jika sukses (200 OK), kembalikan data statusnya sekalian
         return response()->json([
             'success' => true,
-            'data' => $response->json()
+            'data' => $response->json(),
         ]);
     }
 
-
-/**
+    /**
      * Hit API Node.js untuk Login via Cookies
      */
-  /**
+    /**
      * Hit API Node.js untuk Login via Cookies
      */
     public function loginCookies(Request $request)
     {
         $request->validate([
             'sessionName' => 'required|string',
-            'cookies' => 'required' // Bisa string atau array
+            'cookies' => 'required', // Bisa string atau array
         ]);
 
         // MENGGUNAKAN input() AGAR TIDAK BENTROK DENGAN HTTP COOKIES BAWAAN LARAVEL
@@ -156,10 +155,10 @@ class MetaPanelController extends Controller
         }
 
         // Validasi apakah hasil akhirnya benar-benar Array JSON yang valid
-        if (!is_array($cookiesArray)) {
+        if (! is_array($cookiesArray)) {
             return response()->json([
                 'status' => 'Error',
-                'message' => 'Format JSON tidak valid. Pastikan Anda meng-copy utuh dari Cookie Editor.'
+                'message' => 'Format JSON tidak valid. Pastikan Anda meng-copy utuh dari Cookie Editor.',
             ], 400);
         }
 
@@ -170,9 +169,9 @@ class MetaPanelController extends Controller
             $response = Http::timeout(60)
                 ->withToken($user->apiMetaToken->token)
                 ->acceptJson()
-                ->post($baseUrl . '/login-cookies', [
+                ->post($baseUrl.'/login-cookies', [
                     'sessionName' => $request->sessionName,
-                    'cookies' => $cookiesArray // Kirim array yang sudah valid ke Node.js
+                    'cookies' => $cookiesArray, // Kirim array yang sudah valid ke Node.js
                 ]);
 
             return response()->json($response->json(), $response->status());
@@ -180,12 +179,10 @@ class MetaPanelController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'status' => 'Error',
-                'message' => 'Gagal terhubung ke server Bot Meta utama: ' . $e->getMessage()
+                'message' => 'Gagal terhubung ke server Bot Meta utama: '.$e->getMessage(),
             ], 500);
         }
     }
-
-
 
     /**
      * Tampilkan halaman Asset ID (Facebook Pages)
@@ -194,12 +191,12 @@ class MetaPanelController extends Controller
     {
         $user = auth()->user();
 
-        if (!$user->apiMetaToken) {
+        if (! $user->apiMetaToken) {
             return redirect()->route('client.meta.setup');
         }
 
-        $tokenData  = $user->apiMetaToken;
-        $sessions   = $tokenData->sessions ?? [];
+        $tokenData = $user->apiMetaToken;
+        $sessions = $tokenData->sessions ?? [];
 
         // Ambil assets dari DB, group by session_name
         $assets = \App\Models\MetaAsset::where('user_id', $user->id)
@@ -220,15 +217,15 @@ class MetaPanelController extends Controller
             'session_name' => 'required|string',
         ]);
 
-        $user       = auth()->user();
+        $user = auth()->user();
         $sessionName = $request->session_name;
-        $baseUrl    = rtrim(config('services.meta_api.url'), '/');
+        $baseUrl = rtrim(config('services.meta_api.url'), '/');
 
         try {
             $response = \Illuminate\Support\Facades\Http::timeout(30)
                 ->withToken($user->apiMetaToken->token)
                 ->acceptJson()
-                ->post($baseUrl . '/check-business', [
+                ->post($baseUrl.'/check-business', [
                     'sessionName' => $sessionName,
                 ]);
 
@@ -239,7 +236,7 @@ class MetaPanelController extends Controller
                 ], $response->status());
             }
 
-            $data  = $response->json();
+            $data = $response->json();
             $pages = $data['pages'] ?? $data['data'] ?? [];
 
             if (empty($pages)) {
@@ -249,14 +246,16 @@ class MetaPanelController extends Controller
                 ]);
             }
 
-            $synced  = 0;
+            $synced = 0;
             $newCount = 0;
 
             foreach ($pages as $page) {
-                $assetId  = $page['asset_id'] ?? $page['id'] ?? null;
+                $assetId = $page['asset_id'] ?? $page['id'] ?? null;
                 $pageName = $page['page_name'] ?? $page['name'] ?? null;
 
-                if (!$assetId) continue;
+                if (! $assetId) {
+                    continue;
+                }
 
                 $existed = \App\Models\MetaAsset::where('user_id', $user->id)
                     ->where('session_name', $sessionName)
@@ -265,34 +264,36 @@ class MetaPanelController extends Controller
 
                 \App\Models\MetaAsset::updateOrCreate(
                     [
-                        'user_id'      => $user->id,
+                        'user_id' => $user->id,
                         'session_name' => $sessionName,
-                        'asset_id'     => $assetId,
+                        'asset_id' => $assetId,
                     ],
                     [
                         'page_name' => $pageName,
-                        'category'  => $page['category'] ?? null,
-                        'picture'   => $page['picture'] ?? null,
-                        'raw_data'  => $page,
+                        'category' => $page['category'] ?? null,
+                        'picture' => $page['picture'] ?? null,
+                        'raw_data' => $page,
                     ]
                 );
 
-                if (!$existed) $newCount++;
+                if (! $existed) {
+                    $newCount++;
+                }
                 $synced++;
             }
 
             return response()->json([
-                'success'   => true,
-                'message'   => "Sync berhasil! {$synced} asset ditemukan, {$newCount} baru ditambahkan.",
-                'synced'    => $synced,
-                'new'       => $newCount,
-                'session'   => $sessionName,
+                'success' => true,
+                'message' => "Sync berhasil! {$synced} asset ditemukan, {$newCount} baru ditambahkan.",
+                'synced' => $synced,
+                'new' => $newCount,
+                'session' => $sessionName,
             ]);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error: ' . $e->getMessage(),
+                'message' => 'Error: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -308,7 +309,6 @@ class MetaPanelController extends Controller
         return response()->json(['success' => true, 'message' => 'Asset berhasil dihapus.']);
     }
 
-
     /**
      * Ambil assets dari DB berdasarkan session — dipanggil via AJAX saat pilih sesi
      */
@@ -316,7 +316,7 @@ class MetaPanelController extends Controller
     {
         $sessionName = $request->query('session');
 
-        if (!$sessionName) {
+        if (! $sessionName) {
             return response()->json(['assets' => []]);
         }
 
@@ -328,15 +328,15 @@ class MetaPanelController extends Controller
         return response()->json(['assets' => $assets]);
     }
 
-  /**
+    /**
      * Ambil posts dari DB berdasarkan session + asset — dipanggil via AJAX
      */
     public function postsByAsset(Request $request)
     {
         $sessionName = $request->query('session');
-        $assetId     = $request->query('asset_id');
+        $assetId = $request->query('asset_id');
 
-        if (!$sessionName || !$assetId) {
+        if (! $sessionName || ! $assetId) {
             return response()->json(['posts' => [], 'stats' => []]);
         }
 
@@ -348,10 +348,10 @@ class MetaPanelController extends Controller
             ->get();
 
         $stats = [
-            'total'     => $posts->count(),
+            'total' => $posts->count(),
             'scheduled' => $posts->where('status', 'scheduled')->count(),
             'published' => $posts->where('status', 'published')->count(),
-            'failed'    => $posts->where('status', 'failed')->count(),
+            'failed' => $posts->where('status', 'failed')->count(),
         ];
 
         return response()->json([
@@ -396,22 +396,22 @@ class MetaPanelController extends Controller
     {
         $request->validate([
             'session_name' => 'required|string',
-            'asset_id'     => 'required|string',
+            'asset_id' => 'required|string',
         ]);
 
-        $user        = auth()->user();
+        $user = auth()->user();
         $sessionName = $request->session_name;
-        $assetId     = $request->asset_id;
-        $baseUrl     = rtrim(config('services.meta_api.url'), '/');
+        $assetId = $request->asset_id;
+        $baseUrl = rtrim(config('services.meta_api.url'), '/');
 
         try {
             // /check-posts bisa lambat ~10-20 detik (scraping FB Business)
             $response = \Illuminate\Support\Facades\Http::timeout(90)
                 ->withToken($user->apiMetaToken->token)
                 ->acceptJson()
-                ->post($baseUrl . '/check-posts', [
+                ->post($baseUrl.'/check-posts', [
                     'sessionName' => $sessionName,
-                    'assetId'     => $assetId,
+                    'assetId' => $assetId,
                 ]);
 
             if ($response->failed()) {
@@ -440,37 +440,41 @@ class MetaPanelController extends Controller
 
             if ($totalFromApi === 0) {
                 return response()->json([
-                    'success'   => true,
-                    'message'   => 'Tidak ada post ditemukan dari page ini.',
-                    'synced'    => 0,
-                    'new'       => 0,
+                    'success' => true,
+                    'message' => 'Tidak ada post ditemukan dari page ini.',
+                    'synced' => 0,
+                    'new' => 0,
                     'scheduled' => 0,
                     'published' => 0,
                 ]);
             }
 
-            $synced   = 0;
+            $synced = 0;
             $newCount = 0;
 
             // Proses scheduled posts
             foreach ($scheduledItems as $post) {
                 [$existed] = $this->upsertPost($user->id, $sessionName, $assetId, $post, 'scheduled');
-                if (!$existed) $newCount++;
+                if (! $existed) {
+                    $newCount++;
+                }
                 $synced++;
             }
 
             // Proses published posts
             foreach ($publishedItems as $post) {
                 [$existed] = $this->upsertPost($user->id, $sessionName, $assetId, $post, 'published');
-                if (!$existed) $newCount++;
+                if (! $existed) {
+                    $newCount++;
+                }
                 $synced++;
             }
 
             return response()->json([
-                'success'   => true,
-                'message'   => "{$synced} post ditemukan, {$newCount} baru disimpan.",
-                'synced'    => $synced,
-                'new'       => $newCount,
+                'success' => true,
+                'message' => "{$synced} post ditemukan, {$newCount} baru disimpan.",
+                'synced' => $synced,
+                'new' => $newCount,
                 'scheduled' => count($scheduledItems),
                 'published' => count($publishedItems),
             ]);
@@ -478,7 +482,7 @@ class MetaPanelController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error: ' . $e->getMessage(),
+                'message' => 'Error: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -499,13 +503,13 @@ class MetaPanelController extends Controller
      */
     private function upsertPost(int $userId, string $sessionName, string $assetId, array $post, string $statusBucket): array
     {
-        $title   = trim($post['title']   ?? '');
-        $date    = trim($post['date']    ?? '');
-        $status  = $statusBucket; // 'scheduled' atau 'published' — dari bucket, bukan field status
+        $title = trim($post['title'] ?? '');
+        $date = trim($post['date'] ?? '');
+        $status = $statusBucket; // 'scheduled' atau 'published' — dari bucket, bukan field status
 
         // Hash unik karena API tidak return post_id
         // Kombinasi: session + asset + title + date
-        $hash = md5($sessionName . '|' . $assetId . '|' . $title . '|' . $date);
+        $hash = md5($sessionName.'|'.$assetId.'|'.$title.'|'.$date);
 
         $existed = \App\Models\MetaPost::where('user_id', $userId)
             ->where('session_name', $sessionName)
@@ -515,25 +519,150 @@ class MetaPanelController extends Controller
 
         \App\Models\MetaPost::updateOrCreate(
             [
-                'user_id'      => $userId,
+                'user_id' => $userId,
                 'session_name' => $sessionName,
-                'asset_id'     => $assetId,
-                'post_hash'    => $hash,
+                'asset_id' => $assetId,
+                'post_hash' => $hash,
             ],
             [
-                'title'           => $title,
-                'caption'         => $post['caption']         ?? null,
-                'post_date'       => $date,
-                'status'          => $status,
-                'post_url'        => $post['post_url']        ?: null, // null jika kosong
-                'reach'           => (int) ($post['reach']           ?? 0),
+                'title' => $title,
+                'caption' => $post['caption'] ?? null,
+                'post_date' => $date,
+                'status' => $status,
+                'post_url' => $post['post_url'] ?: null, // null jika kosong
+                'reach' => (int) ($post['reach'] ?? 0),
                 'likes_reactions' => (int) ($post['likes_reactions'] ?? 0),
-                'comments'        => (int) ($post['comments']        ?? 0),
-                'shares'          => (int) ($post['shares']          ?? 0),
-                'raw_data'        => $post,
+                'comments' => (int) ($post['comments'] ?? 0),
+                'shares' => (int) ($post['shares'] ?? 0),
+                'raw_data' => $post,
             ]
         );
 
         return [$existed];
+    }
+
+    // Tambahkan method ini di MetaPanelController.php
+
+    /**
+     * Schedule konten ke API Bot Meta
+     */
+    public function schedulePost(Request $request)
+    {
+        $request->validate([
+            'session_name' => 'required|string',
+            'asset_id' => 'required|string',
+            'file_path' => 'required|string',
+            'caption' => 'nullable|string',
+            'date' => 'required|string|regex:/^\d{2}\/\d{2}\/\d{4}$/', // DD/MM/YYYY
+            'hour' => 'required|integer|min:0|max:23',
+        ], [
+            'date.regex' => 'Format tanggal harus DD/MM/YYYY (contoh: 28/03/2026)',
+            'hour.min' => 'Jam harus antara 0-23',
+            'hour.max' => 'Jam harus antara 0-23',
+        ]);
+
+        $user = auth()->user();
+        $baseUrl = rtrim(config('services.meta_api.url'), '/');
+
+        // Validasi tanggal tidak di masa lalu
+        try {
+            $scheduledDate = \Carbon\Carbon::createFromFormat('d/m/Y H:i', $request->date.' '.$request->hour.':00');
+            if ($scheduledDate->isPast()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Waktu jadwal sudah terlewat. Pilih waktu di masa depan.',
+                ], 422);
+            }
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Format tanggal tidak valid.',
+            ], 422);
+        }
+
+        try {
+            $response = \Illuminate\Support\Facades\Http::timeout(30)
+                ->withToken($user->apiMetaToken->token)
+                ->acceptJson()
+                ->post($baseUrl.'/schedule', [
+                    'sessionName' => $request->session_name,
+                    'tasks' => [
+                        [
+                            'assetId' => $request->asset_id,
+                            'filePath' => $request->file_path,
+                            'caption' => $request->caption ?? '',
+                            'date' => $request->date,
+                            'hour' => (string) $request->hour,
+                        ],
+                    ],
+                ]);
+
+            $data = $response->json();
+
+            // Handle response berdasarkan status code
+            if ($response->status() === 202) {
+                // Sukses — masuk antrian
+                return response()->json([
+                    'success' => true,
+                    'status' => $data['status'] ?? 'Queued',
+                    'batch_id' => $data['batchId'] ?? null,
+                    'position' => $data['queue_position'] ?? null,
+                    'message' => $data['message'] ?? 'Konten berhasil masuk antrian!',
+                ]);
+            }
+
+            if ($response->status() === 422) {
+                // Validasi gagal dari API
+                $errors = $data['errors'] ?? [];
+                $errorMessages = collect($errors)->pluck('message')->implode(', ');
+
+                return response()->json([
+                    'success' => false,
+                    'message' => $errorMessages ?: ($data['message'] ?? 'Data tidak valid.'),
+                    'errors' => $errors,
+                ], 422);
+            }
+
+            // Error lainnya
+            return response()->json([
+                'success' => false,
+                'message' => $data['message'] ?? 'Gagal menjadwalkan konten.',
+            ], $response->status());
+
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Server Bot Meta tidak dapat dihubungi. Pastikan server berjalan.',
+            ], 503);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: '.$e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Cek status antrian bot
+     */
+    public function checkQueueStatus()
+    {
+        $user = auth()->user();
+        $baseUrl = rtrim(config('services.meta_api.url'), '/');
+
+        try {
+            $response = \Illuminate\Support\Facades\Http::timeout(10)
+                ->withToken($user->apiMetaToken->token)
+                ->acceptJson()
+                ->get($baseUrl.'/status');
+
+            return response()->json($response->json(), $response->status());
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil status antrian.',
+            ], 500);
+        }
     }
 }
